@@ -24,7 +24,7 @@ B = 'path/to/heaven'
 
 
 def get_default_b():
-    # method that
+    # function that retrieves the 'default' value
     return B
 
 
@@ -96,7 +96,7 @@ named_default('x').value = 1e-3
 
 #### Decorating function with `dynamic_default_args`:
 
-Here is an example in [`example.py`](examples/example.py):
+Here is an example in [`example.py`](examples/example.py) on Python 3.8+:
 
 ```python title=foo.py
 from dynamic_default_args import dynamic_default_args, named_default
@@ -105,71 +105,103 @@ from dynamic_default_args import dynamic_default_args, named_default
 # Note that even non-dynamic default args can be formatted because
 # both are saved for populating positional-only defaults args
 @dynamic_default_args()
-def foo(a0=named_default(a0=5),
-        a1=3,
+def foo(a0,
+        a1=named_default(a1=5),
+        a2=3,
         /,
-        a2=named_default(a2=slice(0, 3)),
-        a3=-1,
-        *a4,
-        a5=None,
-        a6=named_default(a6='python'),
-        **a7):
+        a3=named_default(a3=slice(0, 3)),
+        a4=-1,
+        *a5,
+        a6=None,
+        a7=named_default(a7='python'),
+        **a8):
     """
     A Foo function that has dynamic default arguments.
 
     Args:
-        a0: Positional-only argument a0. Dynamically defaults to a0={a0}.
-        a1: Positional-only argument a1. Defaults to {a1}.
-        a2: Positional-or-keyword argument a2. Dynamically defaults to a2={a2}.
-        a3: Positional-or-keyword argument a3. Defaults to {a3}
-        *a4: Varargs a4.
-        a5: Keyword-only argument a5. Defaults to {a5}.
-        a6: Keyword-only argument a6. Dynamically defaults to {a6}.
-        a7: Varkeywords a7.
+        a0: Required Positional-only argument a0.
+        a1: Positional-only argument a1. Dynamically defaults to a0={a1}.
+        a2: Positional-only argument a1. Defaults to {a2}.
+        a3: Positional-or-keyword argument a2. Dynamically defaults to a3={a3}.
+        a4: Positional-or-keyword argument a4. Defaults to {a4}
+        *a5: Varargs a5.
+        a6: Keyword-only argument a5. Defaults to {a6}.
+        a7: Keyword-only argument a6. Dynamically defaults to {a7}.
+        **a8: Varkeywords a8.
     """
-    print('Called with:', a0, a1, a2, a3, a4, a5, a6, a7)
+    print(f'Called with: a0={a0}, a1={a1}, a2={a2}, a3={a3}, '
+          f'a4={a4}, a5={a5}, a6={a6}, a7={a7}, a8={a8}')
 
 
 # test output:
-foo()
-# Called with: 5 3 0.01 -1 () None python
+foo(0)
+# Called with: a0=0, a1=5, a2=3, a3=slice(0, 3, None), a4=-1, a5=(), a6=None, a7=python, a8={}
 ```
 
-Internally, the auto generated wrapper for this function will be:
+##### How it works?
 
+Internally, the auto generated wrapper for this function will be (without format):
 ```python
-def wrapper(a0=a0_, a1=a1_, a2=a2_, a3=a3_, *a4, a5=a5_, a6=a6_, **a7):
-    return func(a0.value, a1, a2.value, a3, *a4, a5, a6.value, **a7)
+def wrapper(a0, a1=a1_, a2=a2_, a3=a3_, a4=a4_, *a5, a6=a6_, a7=a7_, **a8):
+    func(a0,
+         a1.value if isinstance(a1, default) else a1,
+         a2,
+         a3.value if isinstance(a3, default) else a3,
+         a4,
+         *a5,
+         a6=a6,
+         a7=a7.value if isinstance(a7, default) else a7,
+         **a8)
 ```
 
-whose defaults `a0_, a1_, a2_, a3_, a5_, a6_` are those of `func`(`=foo`), but the contained `named_default`s will have
-their values forwarded instead. The aliases `wrapper` and `func` are assured to be different from arguments' names.
+whose defaults are those of `func`(`=foo`), but the contained `named_default`s will be type checked and have
+their values forwarded instead.
+How the arguments are forwared depend on the type of arguments:
+- **Positional-only**: with its name, e.g.`a0`, `a1`, `a2`
+- **Keyword-or-position**: with its name, e.g. `a3`, `a4`
+- **Varargs**: with an asterisk operator, e.g. `*a5`
+- **Keyword-only**: with its name as key, e.g. `a6=a6`, `a7=a7`
+- **Varkeywords**: with double asterick operator, e.g. `**a8`
+
+**Note:** _For those who don't know, the type of argument depends on its position relative to the 3 syntax's `/`, `*`, and `**`:_
+```python
+def f(poo0, ..., /, pok, ..., *args, kw0, kw1, ..., **kwargs):
+      ----------    --------    |    --------------     |
+      |             |           |    |                  |
+      |             Positional- |    |             Varkeywords
+      |             or-keyword  |    Keyword-only
+      Positional-only        Varargs  
+```
+
+The aliases `wrapper, func, default` are assured to be different from the original arguments' names.
 
 By passing `format_doc=True` (which is the default behavior), the decorator will try to bind default values of argument
 with names defined in format keys of the docstring.
 Any modification to the dynamic default values will update the docstring with an event.
 
 ```python
-named_default('a2').value = range(10)
-named_default('a6').value = 'rust'
+named_default('a1').value *= 2
+named_default('a3').value = range(10)
+named_default('a7').value = 'rust'
 help(foo)
 ```
 
 Output: _(even normal default arguments will be formatted)_
 
 ```
-foo(a0=5, a1=3, /, a2=range(0, 10), a3=-1, *a4, a5=None, a6='rust', **a7)
+foo(a0, a1=10, a2=3, /, a3=range(0, 10), a4=-1, *a5, a6=None, a7='rust', **a8)
     A Foo function that has dynamic default arguments.
     
     Args:
-        a0: Positional-only argument a0. Dynamically defaults to a0=5.
-        a1: Positional-only argument a1. Defaults to 3.
-        a2: Positional-or-keyword argument a2. Dynamically defaults to a2=range(0, 10).
-        a3: Positional-or-keyword argument a3. Defaults to -1
-        *a4: Varargs a4.
-        a5: Keyword-only argument a5. Defaults to None.
-        a6: Keyword-only argument a6. Dynamically defaults to rust.
-        a7: Varkeywords a7.
+        a0: Required Positional-only argument a0.
+        a1: Positional-only argument a1. Dynamically defaults to a0=10.
+        a2: Positional-only argument a1. Defaults to 3.
+        a3: Positional-or-keyword argument a2. Dynamically defaults to a3=range(0, 10).
+        a4: Positional-or-keyword argument a4. Defaults to -1
+        *a5: Varargs a5.
+        a6: Keyword-only argument a5. Defaults to None.
+        a7: Keyword-only argument a6. Dynamically defaults to rust.
+        **a8: Varkeywords a8.
 ```
 
 #### Binding

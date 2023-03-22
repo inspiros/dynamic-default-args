@@ -1,11 +1,7 @@
-import array
 import inspect
 import string
 from functools import wraps
-from types import FunctionType
 from typing import Optional, Any
-
-import numpy as np
 
 from .event import Event
 from .format_dict import format_dict
@@ -149,11 +145,17 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
         if force_wrap or has_dynamic_defaults:
             func_alias = 'func'
             wrapper_alias = 'wrapper'
+            default_alias = 'default'
             while func_alias in names:
                 func_alias = '_' + func_alias
             while wrapper_alias in names:
                 wrapper_alias = '_' + wrapper_alias
-            context = {func_alias: func}
+            while default_alias in names:
+                default_alias = '_' + default_alias
+            context = {
+                default_alias: _default,
+                func_alias: func
+            }
 
             expr = f'def {wrapper_alias}('
             for i, (name, kind, default_val) in enumerate(zip(names, kinds, defaults)):
@@ -164,18 +166,23 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
                     expr += f'={name}_'
                 if i < n_params - 1:
                     expr += ', '
-            expr += f'): return {func_alias}('
+            expr += f'):\n\treturn {func_alias}('
             for i, (name, kind) in enumerate(zip(names, kinds)):
-                expr += '{}{}{}'.format('*' if kind == 2 else '**' if kind == 4 else '',
-                                        name, '.value' if dynamic_default_mask[i] else '')
+                if kind == 2:
+                    expr += '*'
+                elif kind == 4:
+                    expr += '**'
+                expr += name
+                if kind == 3:
+                    expr += f'={name}'
+                if dynamic_default_mask[i]:
+                    expr += f'.value if isinstance({name}, {default_alias}) else {name}'
                 if i < n_params - 1:
                     expr += ', '
             expr += ')\n'
-
             exec_locals = {}
             exec(compile(expr, f'<{func.__name__}_wrapper>', 'exec'), context, exec_locals)
             wrapper = wraps(func)(exec_locals[wrapper_alias])
-            del exec_locals
         else:  # no wrapping
             wrapper = func
 
@@ -189,9 +196,10 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
                 format_keys_ids = [i for i in range(n_params) if names[i] in format_keys]
 
                 def update_docstring(*args, **kwargs):
-                    wrapper.__doc__ = wrapper.__default_doc__.format_map(format_dict(
-                        {names[i]: defaults[i].value if dynamic_default_mask[i]
-                         else defaults[i] for i in format_keys_ids}))
+                    wrapper.__doc__ = wrapper.__default_doc__.format_map(format_dict({
+                        names[i]: defaults[i].value if dynamic_default_mask[i]
+                        else defaults[i] for i in format_keys_ids
+                        if defaults[i] is not _empty}))
 
                 update_docstring()
                 # automatic update later
