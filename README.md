@@ -165,11 +165,11 @@ How the arguments are forwared depend on the type of arguments:
 
 **Note:** _For those who don't know, the type of argument depends on its position relative to the 3 syntax's `/`, `*`, and `**`:_
 ```python
-def f(poo0, ..., /, pok, ..., *args, kw0, kw1, ..., **kwargs):
-      ----------    --------    |    --------------     |
-      |             |           |    |                  |
-      |             Positional- |    |             Varkeywords
-      |             or-keyword  |    Keyword-only
+def f(po0, ..., /, pok0, ..., *args, kw0, kw1, ..., **kwargs):
+      ----------   --------    |     --------------    |
+      |            |           |     |                 |
+      |            Positional- |     |             Varkeywords
+      |            or-keyword  |     Keyword-only
       Positional-only        Varargs  
 ```
 
