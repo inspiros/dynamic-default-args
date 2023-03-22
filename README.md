@@ -1,0 +1,213 @@
+Python Dynamic Default Arguments
+======
+
+This package provide facilities to make default arguments of python's functions dynamic.
+
+### Context
+
+This code is extracted from another project of mine.
+It solves a problem that was also mentioned in
+this [stackoverflow thread](https://stackoverflow.com/questions/16960469/dynamic-default-arguments-in-python-functions).
+
+It turns out that changing functions' default arguments in an elegant way is a lot harder than what we think.
+The common approach is to define a function that retrieves the value of the _default_ argument stored somewhere:
+
+```python
+class _empty(type):
+  pass  # placeholder
+
+
+B = 'path/to/heaven'
+
+
+def get_default_b():
+    # method that
+    return B
+
+
+def foo(a, b=_empty):
+    if b is _empty:
+        b = get_default_b()
+    send_to(a, destination=b)  # do something
+
+
+def main():
+    global B
+    B = 'path/to/hell'
+    foo('Putin')
+```
+
+The old standard way is certainly the best, but programmers should also be aware of numbers of function calls when there
+are many arguments to be made dynamically default.
+But the point is, it doesn't look nice.
+
+This module's solution limits to a single wrapper function, which is `compile`d from string for minimal object
+initialization and condition checking, so most of the overheads are during module importing.
+
+### Requirements
+
+- Python 3
+
+### Installation
+
+This is a pure Python package.
+```bash
+pip install .
+```
+
+### Usage
+
+This package provides two components:
+
+- `named_default`: A object that has a name and contains a value.
+  This is a singleton-like object, which means any initialization with the same name will return the first one with the
+  same registered name.
+- `dynamic_default_args`: A function decorator for substituting any given `named_default` with its value when function
+  is called.
+
+#### Creating a `named_default`:
+
+There are 2 ways to initialize a `named_default`, either pass a pair of `named_default(name, value)` positional
+arguments or use a single keyword argument `named_default(name=value)`.
+
+```python
+from dynamic_default_args import named_default
+
+# method 1
+x = named_default('x', 1)
+# method 2
+y = named_default(y=1)
+```
+
+It is not necessary to keep the reference of this object as you can always recover them when calling `named_default`
+again with the same name.
+
+```python
+from dynamic_default_args import named_default
+
+print(named_default('x').value)
+named_default('x').value = 1e-3
+```
+
+#### Decorating function with `dynamic_default_args`:
+
+Here is an example in [`example.py`](examples/example.py):
+
+```python title=foo.py
+from dynamic_default_args import dynamic_default_args, named_default
+
+
+# Note that even non-dynamic default args can be formatted because
+# both are saved for populating positional-only defaults args
+@dynamic_default_args(format_doc=True)
+def foo(a0=named_default(a0=5),
+        a1=3,
+        /,
+        a2=named_default(a2=1e-2),
+        a3=-1,
+        *a4,
+        a5=None,
+        a6=named_default(a6='python')):
+    """
+    A Foo function that has dynamic default arguments.
+
+    Args:
+        a0: Positional-only argument a0. Dynamically defaults to a0={a0}.
+        a1: Positional-only argument a1. Defaults to {a1}.
+        a2: Positional-or-keyword argument a2. Dynamically defaults to a2={a2}.
+        a3: Positional-or-keyword argument a3. Defaults to {a3}
+        *a4: Varargs a4.
+        a5: Keyword-only argument a5. Defaults to {a5}.
+        a6: Keyword-only argument a6. Dynamically defaults to {a6}.
+    """
+    print('Called with:', a0, a1, a2, a3, a4, a5, a6)
+
+
+# test output:
+foo()
+# Called with: 5 3 0.01 -1 () None python
+```
+
+By passing `format_doc=True`, the decorator will try to bind default values of argument with names defined in format
+keys of the docstring.
+Any modification to the dynamic default values will update the docstring with an event.
+
+```python
+named_default('a6').value = 'rust'
+help(foo)
+```
+
+Output:
+
+```
+foo(a0=default(a0=5), a1=3, /, a2=default(a2=0.01), a3=-1, *a4, a5=None, a6=default(a6=rust))
+    A Foo function that has dynamic default arguments.
+    
+    Args:
+        a0: Positional-only argument a0. Dynamically defaults to a0=5.
+        a1: Positional-only argument a1. Defaults to 3.
+        a2: Positional-or-keyword argument a2. Dynamically defaults to a2=0.01.
+        a3: Positional-or-keyword argument a3. Defaults to -1
+        *a4: Varargs a4.
+        a5: Keyword-only argument a5. Defaults to None.
+        a6: Keyword-only argument a6. Dynamically defaults to rust.
+```
+
+#### Binding
+
+The `named_default` object will emit an event to all registered listeners, which can be set by calling `.connect`
+method:
+
+```python
+from dynamic_default_args import named_default
+
+variable = named_default('my_variable', None)
+
+
+def on_variable_changed(value):
+    print(f'Changed to {value}')
+
+
+variable.connect(on_variable_changed)
+```
+
+### Limitations
+
+This solution relies on function introspection provided by the `inspect` module, which does not work on built-in
+functions (including C/C++ extensions).
+However, you can wrap them with a python with, or modify the source code of the decorator to accept a custom signature
+as argument.
+
+For **Cython** users, a `def` or `cpdef` (might be inspected incorrectly) function defined in `.pyx` files can be
+decorated by setting `binding=True`.
+
+```cython
+import cython
+
+from dynamic_default_args import dynamic_default_args, named_default
+
+@dynamic_default_args(format_doc=True)
+@cython.binding(True)
+def add(x: float = named_default(x=0.),
+        y: float = named_default(y=0.)):
+    """``cython.binding`` will add docstring to the wrapped function,
+    so we can format it later.
+
+        Args:
+            x: First argument, dynamically defaults to {x}
+            y: Second argument, dynamically defaults to {y}
+
+        Returns:
+            The sum of x and y
+    """
+    return x + y
+```
+
+**Further improvements:**
+
+Some parts of the project can be converted to **Cython**, including the wrapper function to make use of typed data (
+which I have already done for [cy-root](https://github.com/inspiros/cy-root.git)), but the difference is negligible.
+
+### License
+The code is released under MIT-0 license. See [`LICENSE.txt`](LICENSE.txt) for details.
+Feel free to do anything, I would be surprised if anyone does use this 😐.
