@@ -1,6 +1,8 @@
 Python Dynamic Default Arguments
 ======
-![Build wheels](https://github.com/inspiros/dynamic-default-args/actions/workflows/build_wheels.yml/badge.svg)
+![Build wheel](https://github.com/inspiros/dynamic-default-args/actions/workflows/build_wheels.yml/badge.svg)
+![PyPI](https://img.shields.io/pypi/v/dynamic-default-args)
+![GitHub](https://img.shields.io/github/license/inspiros/dynamic-default-args)
 
 This package provide facilities to make default arguments of python's functions dynamic.
 
