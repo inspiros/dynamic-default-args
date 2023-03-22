@@ -140,7 +140,7 @@ help(foo)
 Output:
 
 ```
-foo(a0=default(a0=5), a1=3, /, a2=default(a2=0.01), a3=-1, *a4, a5=None, a6=default(a6=rust))
+foo(a0=5, a1=3, /, a2=0.01, a3=-1, *a4, a5=None, a6='rust')
     A Foo function that has dynamic default arguments.
     
     Args:

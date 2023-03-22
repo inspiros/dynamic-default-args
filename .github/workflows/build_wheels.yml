@@ -20,12 +20,8 @@ jobs:
           path: dist/*.tar.gz
 
   build_wheels:
-    name: Build wheels on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
-
+    name: Build wheel
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
 
