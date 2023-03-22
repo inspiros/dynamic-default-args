@@ -5,11 +5,12 @@ from dynamic_default_args import *
 def foo(a0=named_default(a0=5),
         a1=3,
         /,
-        a2=named_default(a2=1e-2),
+        a2=named_default(a2=slice(0, 3)),
         a3=-1,
         *a4,
         a5=None,
-        a6=named_default(a6='python')):
+        a6=named_default(a6='python'),
+        **a7):
     """
     A Foo function that has dynamic default arguments.
 
@@ -21,8 +22,9 @@ def foo(a0=named_default(a0=5),
         *a4: Varargs a4.
         a5: Keyword-only argument a5. Defaults to {a5}.
         a6: Keyword-only argument a6. Dynamically defaults to {a6}.
+        a7: Varkeywords a7.
     """
-    print('Called with:', a0, a1, a2, a3, a4, a5, a6)
+    print('Called with:', a0, a1, a2, a3, a4, a5, a6, a7)
 
 
 def main():
@@ -30,6 +32,7 @@ def main():
     foo()
     print('\n' * 3)
 
+    named_default('a2').value = range(10)
     named_default('a6').value = 'rust'
     help(foo)
     foo()

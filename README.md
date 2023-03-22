@@ -40,12 +40,12 @@ def main():
     foo('Putin')
 ```
 
-The old standard way is certainly the best, but programmers should also be aware of numbers of function calls when there
-are many arguments to be made dynamically default.
+The old standard way is ok, but we should be aware of numbers of function calls when there are many arguments to be made
+dynamically default.
 But the point is, it doesn't look nice.
 
-This module's solution limits to a single wrapper function, which is `compile`d from string for minimal object
-initialization and condition checking, so most of the overheads are during module importing.
+This module's solution limits to a single wrapper function, which is `compile`d from string to minimize overheads on
+runtime.
 
 ### Requirements
 
@@ -104,15 +104,16 @@ from dynamic_default_args import dynamic_default_args, named_default
 
 # Note that even non-dynamic default args can be formatted because
 # both are saved for populating positional-only defaults args
-@dynamic_default_args(format_doc=True)
+@dynamic_default_args()
 def foo(a0=named_default(a0=5),
         a1=3,
         /,
-        a2=named_default(a2=1e-2),
+        a2=named_default(a2=slice(0, 3)),
         a3=-1,
         *a4,
         a5=None,
-        a6=named_default(a6='python')):
+        a6=named_default(a6='python'),
+        **a7):
     """
     A Foo function that has dynamic default arguments.
 
@@ -124,8 +125,9 @@ def foo(a0=named_default(a0=5),
         *a4: Varargs a4.
         a5: Keyword-only argument a5. Defaults to {a5}.
         a6: Keyword-only argument a6. Dynamically defaults to {a6}.
+        a7: Varkeywords a7.
     """
-    print('Called with:', a0, a1, a2, a3, a4, a5, a6)
+    print('Called with:', a0, a1, a2, a3, a4, a5, a6, a7)
 
 
 # test output:
@@ -133,29 +135,41 @@ foo()
 # Called with: 5 3 0.01 -1 () None python
 ```
 
-By passing `format_doc=True`, the decorator will try to bind default values of argument with names defined in format
-keys of the docstring.
+Internally, the auto generated wrapper for this function will be:
+
+```python
+def wrapper(a0=a0_, a1=a1_, a2=a2_, a3=a3_, *a4, a5=a5_, a6=a6_, **a7):
+    return func(a0.value, a1, a2.value, a3, *a4, a5, a6.value, **a7)
+```
+
+whose defaults `a0_, a1_, a2_, a3_, a5_, a6_` are those of `func`, but the contained `named_default`s will have their
+values forwarded instead.
+
+By passing `format_doc=True` (which is the default behavior), the decorator will try to bind default values of argument
+with names defined in format keys of the docstring.
 Any modification to the dynamic default values will update the docstring with an event.
 
 ```python
+named_default('a2').value = range(10)
 named_default('a6').value = 'rust'
 help(foo)
 ```
 
-Output:
+Output: _(even normal default arguments will be formatted)_
 
 ```
-foo(a0=5, a1=3, /, a2=0.01, a3=-1, *a4, a5=None, a6='rust')
+foo(a0=5, a1=3, /, a2=range(0, 10), a3=-1, *a4, a5=None, a6='rust', **a7)
     A Foo function that has dynamic default arguments.
     
     Args:
         a0: Positional-only argument a0. Dynamically defaults to a0=5.
         a1: Positional-only argument a1. Defaults to 3.
-        a2: Positional-or-keyword argument a2. Dynamically defaults to a2=0.01.
+        a2: Positional-or-keyword argument a2. Dynamically defaults to a2=range(0, 10).
         a3: Positional-or-keyword argument a3. Defaults to -1
         *a4: Varargs a4.
         a5: Keyword-only argument a5. Defaults to None.
         a6: Keyword-only argument a6. Dynamically defaults to rust.
+        a7: Varkeywords a7.
 ```
 
 #### Binding
@@ -208,12 +222,11 @@ def add(x: float = named_default(x=0.),
     return x + y
 ```
 
+Also, it is clear that decorators are not lazily initialized.
+
 **Further improvements:**
 
-Some parts of the project can be converted to **Cython**, including the wrapper function to make use of typed data (
-which I have already done for [cy-root](https://github.com/inspiros/cy-root.git)), but the difference is negligible.
-
-Alternatively, modifying the `func.__defaults__` must be more performant.
+Modifying the `func.__defaults__` should be more performant.
 
 ### License
 
