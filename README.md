@@ -213,6 +213,8 @@ def add(x: float = named_default(x=0.),
 Some parts of the project can be converted to **Cython**, including the wrapper function to make use of typed data (
 which I have already done for [cy-root](https://github.com/inspiros/cy-root.git)), but the difference is negligible.
 
+Alternatively, modifying the `func.__defaults__` must be more performant.
+
 ### License
 
 The code is released under MIT-0 license. See [`LICENSE.txt`](LICENSE.txt) for details.
