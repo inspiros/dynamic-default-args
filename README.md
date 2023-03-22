@@ -142,8 +142,8 @@ def wrapper(a0=a0_, a1=a1_, a2=a2_, a3=a3_, *a4, a5=a5_, a6=a6_, **a7):
     return func(a0.value, a1, a2.value, a3, *a4, a5, a6.value, **a7)
 ```
 
-whose defaults `a0_, a1_, a2_, a3_, a5_, a6_` are those of `func`, but the contained `named_default`s will have their
-values forwarded instead.
+whose defaults `a0_, a1_, a2_, a3_, a5_, a6_` are those of `func`(`=foo`), but the contained `named_default`s will have
+their values forwarded instead. The aliases `wrapper` and `func` are assured to be different from arguments' names.
 
 By passing `format_doc=True` (which is the default behavior), the decorator will try to bind default values of argument
 with names defined in format keys of the docstring.

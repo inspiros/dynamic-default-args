@@ -28,9 +28,9 @@ def foo(a0=named_default(a0=5),
 
 
 def main():
-    help(foo)
+    # help(foo)
     foo()
-    print('\n' * 3)
+    print()
 
     named_default('a2').value = range(10)
     named_default('a6').value = 'rust'

@@ -138,7 +138,6 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
 
         names = list(params.keys())
         defaults = [v.default for v in params.values()]
-        context = {}
         kinds = [v.kind for v in params.values()]
         default_mask = [True if v.default is not _empty else False
                         for v in params.values()]
@@ -148,7 +147,15 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
 
         has_dynamic_defaults = any(dynamic_default_mask)
         if force_wrap or has_dynamic_defaults:
-            expr = 'def wrapper('
+            func_alias = 'func'
+            wrapper_alias = 'wrapper'
+            while func_alias in names:
+                func_alias = '_' + func_alias
+            while wrapper_alias in names:
+                wrapper_alias = '_' + wrapper_alias
+            context = {func_alias: func}
+
+            expr = f'def {wrapper_alias}('
             for i, (name, kind, default_val) in enumerate(zip(names, kinds, defaults)):
                 if default_mask[i]:
                     context[f'{name}_'] = default_val
@@ -157,15 +164,18 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
                     expr += f'={name}_'
                 if i < n_params - 1:
                     expr += ', '
-            expr += '):\n\treturn func('
+            expr += f'): return {func_alias}('
             for i, (name, kind) in enumerate(zip(names, kinds)):
                 expr += '{}{}{}'.format('*' if kind == 2 else '**' if kind == 4 else '',
                                         name, '.value' if dynamic_default_mask[i] else '')
                 if i < n_params - 1:
                     expr += ', '
             expr += ')\n'
-            compiled_wrapper = compile(expr, f'<{func.__name__}_wrapper>', 'exec')
-            wrapper = wraps(func)(FunctionType(compiled_wrapper, globals=context))
+
+            exec_locals = {}
+            exec(compile(expr, f'<{func.__name__}_wrapper>', 'exec'), context, exec_locals)
+            wrapper = wraps(func)(exec_locals[wrapper_alias])
+            del exec_locals
         else:  # no wrapping
             wrapper = func
 
