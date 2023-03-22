@@ -17,7 +17,7 @@ The common approach is to define a function that retrieves the value of the _def
 
 ```python
 class _empty(type):
-  pass  # placeholder
+    pass  # placeholder
 
 
 B = 'path/to/heaven'
@@ -53,9 +53,11 @@ initialization and condition checking, so most of the overheads are during modul
 
 ### Installation
 
-This is a pure Python package.
+[dynamic-default-args](https://pypi.org/project/dynamic-default-args/) is available on PyPI, this is a pure Python
+package.
+
 ```bash
-pip install .
+pip install dynamic-default-args
 ```
 
 ### Usage
@@ -212,5 +214,6 @@ Some parts of the project can be converted to **Cython**, including the wrapper 
 which I have already done for [cy-root](https://github.com/inspiros/cy-root.git)), but the difference is negligible.
 
 ### License
+
 The code is released under MIT-0 license. See [`LICENSE.txt`](LICENSE.txt) for details.
 Feel free to do anything, I would be surprised if anyone does use this 😐.
