@@ -198,8 +198,7 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
                 def update_docstring(*args, **kwargs):
                     wrapper.__doc__ = wrapper.__default_doc__.format_map(format_dict({
                         names[i]: defaults[i].value if dynamic_default_mask[i]
-                        else defaults[i] for i in format_keys_ids
-                        if defaults[i] is not _empty}))
+                        else defaults[i] for i in format_keys_ids if default_mask[i]}))
 
                 update_docstring()
                 # automatic update later
