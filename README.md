@@ -226,8 +226,7 @@ variable.connect(on_variable_changed)
 
 This solution relies on function introspection provided by the `inspect` module, which does not work on built-in
 functions (including C/C++ extensions).
-However, you can wrap them with a python with, or modify the source code of the decorator to accept a custom signature
-as argument.
+However, you can wrap them, or modify the source code of the decorator to accept a custom signature as argument.
 
 For **Cython** users, a `def` or `cpdef` (might be inspected incorrectly) function defined in `.pyx` files can be
 decorated by setting `binding=True`.
