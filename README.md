@@ -72,8 +72,10 @@ This package provides two components:
 
 #### Creating a `named_default`:
 
-There are 2 ways to initialize a `named_default`, either pass a pair of `named_default(name, value)` positional
-arguments or use a single keyword argument `named_default(name=value)`.
+There are 3 ways to initialize a `named_default`:
+- Pass a pair of positional arguments `named_default([name], [value])`
+- Pass the two keywords `named_default(name=[name], value=[value])`
+- Pass a single keyword argument `named_default([name]=[value])`.
 
 ```python
 from dynamic_default_args import named_default
@@ -81,17 +83,28 @@ from dynamic_default_args import named_default
 # method 1
 x = named_default('x', 1)
 # method 2
-y = named_default(y=1)
+y = named_default(name='y', value=2)
+# method 3
+z = named_default(z=3)
 ```
 
 It is not necessary to keep the reference of this object as you can always recover them when calling `named_default`
-again with the same name.
+again with the same name. New value passed to the constructor will be ignored.
 
 ```python
 from dynamic_default_args import named_default
 
 print(named_default('x').value)
 named_default('x').value = 1e-3
+```
+
+Trying to access an unregistered name will raise Exception.
+
+```python
+from dynamic_default_args import named_default
+
+print(named_default('an_unregistered_name').value)
+# ValueError: an_unregistered_name has not been registered.
 ```
 
 #### Decorating function with `dynamic_default_args`:
@@ -104,7 +117,7 @@ from dynamic_default_args import dynamic_default_args, named_default
 
 # Note that even non-dynamic default args can be formatted because
 # both are saved for populating positional-only defaults args
-@dynamic_default_args()
+@dynamic_default_args(format_doc=True)
 def foo(a0,
         a1=named_default(a1=5),
         a2=3,
@@ -226,7 +239,7 @@ variable.connect(on_variable_changed)
 
 This solution relies on function introspection provided by the `inspect` module, which does not work on built-in
 functions (including C/C++ extensions).
-However, you can wrap them, or modify the source code of the decorator to accept a custom signature as argument.
+However, you can wrap them with your own Python function.
 
 For **Cython** users, a `def` or `cpdef` (might be inspected incorrectly) function defined in `.pyx` files can be
 decorated by setting `binding=True`.

@@ -35,11 +35,13 @@ def main():
     foo(0)
     print()
 
+    # modify defaults' values
     named_default('a1').value *= 2
     named_default('a3').value = range(10)
     named_default('a7').value = 'rust'
+
     help(foo)
-    foo(foo, a6=...)
+    foo(foo, a6=..., a9=1.5)
 
 
 if __name__ == '__main__':

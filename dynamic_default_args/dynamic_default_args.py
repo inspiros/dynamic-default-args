@@ -24,6 +24,11 @@ class _default(Event):
     def __repr__(self):
         return repr(self.value)
 
+    def __eq__(self, other):
+        if isinstance(other, _default):
+            return self.value == other.value
+        return self.value == other
+
     @SetterProperty
     def value(self, value):
         self.__dict__['value'] = value
@@ -33,21 +38,44 @@ class _default(Event):
 class _NamedDefaultMeta(type):
     _instances = {}
 
+    @staticmethod
+    def _get_init_error_msg(cls, name=_empty, value=_empty, **kwargs):
+        _init_error_msg = 'Define named default with one string and one value, ' \
+                          'either by passing them as positional arguments ' \
+                          '`{cls}([name], [value])`, as keywords ' \
+                          '`{cls}(name=[name], value=[value])`, ' \
+                          'or a single keyword argument `{cls}([name]=[value])`. ' \
+                          '\nGot {cls}({args}).'
+        _called_args = ''
+        if name is not _empty:
+            _called_args = f'name={name}'
+            if value is not _empty:
+                _called_args += ', '
+        if value is not _empty:
+            _called_args += f'value={value}'
+        if len(_called_args) and len(kwargs):
+            _called_args += ', '
+        _called_args += ', '.join(f'{k}={v}' for k, v in kwargs.items())
+        return _init_error_msg.format(cls=cls.__name__, args=_called_args)
+
     def __call__(cls, *args, **kwargs):
-        if len(args) == 2 and args[0] is None:
-            args = ()
-        from_args = len(args) in (1, 2)
+        name, value = args
+        has_name = name is not _empty
+        has_value = value is not _empty
+        from_args = has_name
         from_kwargs = len(kwargs) == 1
         if not from_args ^ from_kwargs:
-            raise ValueError('Define named default with one string and one value, '
-                             'either by two positional arguments or a single keyword '
-                             'argument. If only name given, value will be set to None.')
+            raise ValueError(_NamedDefaultMeta._get_init_error_msg(cls, *args, **kwargs))
         if from_args:
-            name, value = args[0], args[1] if len(args) == 2 else None
-        elif from_kwargs:
+            if not isinstance(name, str):
+                raise ValueError(f'Name must be string. Got {type(name)}.')
+            elif not has_value and name not in cls._instances:
+                raise ValueError(f'{name} has not been registered.')
+            value = value if has_value else None
+        else:  # from_kwargs
+            if has_value:
+                raise ValueError(_NamedDefaultMeta._get_init_error_msg(cls, *args, **kwargs))
             name, value = next(iter(kwargs.items()))
-        if not isinstance(name, str):
-            raise ValueError(f'Name must be string. Got {type(name)}.')
         if name not in cls._instances:
             cls._instances[name] = super(_NamedDefaultMeta, cls).__call__(name, value)
         return cls._instances[name]
@@ -66,31 +94,32 @@ def default(value: Any) -> Any:
     return _default(value)
 
 
-def named_default(name: Optional[str] = None,
-                  value: Optional[Any] = None,
+def named_default(name: Optional[str] = _empty,
+                  value: Optional[Any] = _empty,
                   **kwargs) -> Any:
     """Create a named default object that holds a default value
     for arguments, which can be dynamically changed later.
 
     This function accpets passing two positional arguments name
     and value. If value is not provided and the name hasn't been
-    registered, value will be set to ``None``.
+    registered, an Exception will be raised.
 
-    >>> def foo(x=named_default('x', 0.5)):
-    >>>    ...
+    >>> x = named_default('x', 0.5)
+
+    Or more expressively:
+
+    >>> x = named_default(name='x', value=0.5)
 
     Ortherwise, use a single keyword argument. The keyword will
     be used as name.
 
-    >>> def foo(x=named_default(x=1)):
-    >>>    ...
+    >>> x = named_default(x=1)
 
     For modifying the default values everywhere, call this function
     with only the name of defined variable. Any value provided will
     have no effect.
 
-    >>> default_x = named_default('x')
-    >>> default_x.value = 2.0
+    >>> named_default('x').value = 2.0
     """
     return _named_default(name, value, **kwargs)
 
