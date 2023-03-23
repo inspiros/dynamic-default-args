@@ -4,7 +4,7 @@ Python Dynamic Default Arguments
 ![PyPI](https://img.shields.io/pypi/v/dynamic-default-args)
 ![GitHub](https://img.shields.io/github/license/inspiros/dynamic-default-args)
 
-This package provide facilities to make default arguments of python's functions dynamic.
+This package provides facilities to make default arguments of python's functions dynamic.
 
 ### Context
 
