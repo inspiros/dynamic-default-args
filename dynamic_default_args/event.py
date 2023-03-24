@@ -1,7 +1,9 @@
 __all__ = ['Event']
 
 
-class Event:
+class Event(object):
+    __slots__ = '_listeners'
+
     def __init__(self):
         self._listeners = set()
 

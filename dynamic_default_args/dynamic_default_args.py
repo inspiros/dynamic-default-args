@@ -5,7 +5,6 @@ from typing import Optional, Any
 
 from .event import Event
 from .format_dict import format_dict
-from .setter_property import SetterProperty
 
 __all__ = [
     'default',
@@ -16,30 +15,36 @@ __all__ = [
 _empty = __import__('inspect')._empty
 
 
-class _default(Event):
+# noinspection PyPep8Naming
+class default(Event):
+    __slots__ = '_value'
+
     def __init__(self, value):
         super().__init__()
-        self.value = value
+        self._value = value
 
     def __repr__(self):
-        return repr(self.value)
+        return repr(self._value)
 
     def __eq__(self, other):
-        if isinstance(other, _default):
-            return self.value == other.value
-        return self.value == other
+        if isinstance(other, default):
+            return self._value == other._value
+        return self._value == other
 
-    @SetterProperty
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
     def value(self, value):
-        self.__dict__['value'] = value
+        self._value = value
         self.emit(value)
 
 
 class _NamedDefaultMeta(type):
     _instances = {}
 
-    @staticmethod
-    def _get_init_error_msg(cls, name=_empty, value=_empty, **kwargs):
+    def _get_init_error_msg(cls, name, value, **kwargs):
         _init_error_msg = 'Define named default with one string and one value, ' \
                           'either by passing them as positional arguments ' \
                           '`{cls}([name], [value])`, as keywords ' \
@@ -58,14 +63,12 @@ class _NamedDefaultMeta(type):
         _called_args += ', '.join(f'{k}={v}' for k, v in kwargs.items())
         return _init_error_msg.format(cls=cls.__name__, args=_called_args)
 
-    def __call__(cls, *args, **kwargs):
-        name, value = args
-        has_name = name is not _empty
+    def __call__(cls, name=_empty, value=_empty, **kwargs):
         has_value = value is not _empty
-        from_args = has_name
+        from_args = name is not _empty
         from_kwargs = len(kwargs) == 1
         if not from_args ^ from_kwargs:
-            raise ValueError(_NamedDefaultMeta._get_init_error_msg(cls, *args, **kwargs))
+            raise ValueError(cls._get_init_error_msg(name, value, **kwargs))
         if from_args:
             if not isinstance(name, str):
                 raise ValueError(f'Name must be string. Got {type(name)}.')
@@ -74,33 +77,19 @@ class _NamedDefaultMeta(type):
             value = value if has_value else None
         else:  # from_kwargs
             if has_value:
-                raise ValueError(_NamedDefaultMeta._get_init_error_msg(cls, *args, **kwargs))
+                raise ValueError(cls._get_init_error_msg(name, value, **kwargs))
             name, value = next(iter(kwargs.items()))
         if name not in cls._instances:
             cls._instances[name] = super(_NamedDefaultMeta, cls).__call__(name, value)
         return cls._instances[name]
 
 
-class _named_default(_default, metaclass=_NamedDefaultMeta):
-    def __init__(self, name=None, value=None, **kwargs):
-        super().__init__(value)
-        self.name = name
-
-
-def default(value: Any) -> Any:
-    """
-    Create a default object that holds a default value.
-    """
-    return _default(value)
-
-
-def named_default(name: Optional[str] = _empty,
-                  value: Optional[Any] = _empty,
-                  **kwargs) -> Any:
-    """Create a named default object that holds a default value
+# noinspection PyPep8Naming
+class named_default(default, metaclass=_NamedDefaultMeta):
+    """A named default object that holds a default value
     for arguments, which can be dynamically changed later.
 
-    This function accpets passing two positional arguments name
+    The constructor accepts passing two positional arguments name
     and value. If value is not provided and the name hasn't been
     registered, an Exception will be raised.
 
@@ -121,7 +110,15 @@ def named_default(name: Optional[str] = _empty,
 
     >>> named_default('x').value = 2.0
     """
-    return _named_default(name, value, **kwargs)
+
+    __slots__ = 'name'
+
+    def __init__(self,
+                 name: Optional[str] = None,
+                 value: Optional[Any] = None,
+                 **kwargs):
+        super().__init__(value)
+        self.name = name
 
 
 def dynamic_default_args(format_doc=True, force_wrap=False):
@@ -162,11 +159,11 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
         n_params = len(params)
 
         names = list(params.keys())
-        defaults = [v.default for v in params.values()]
+        default_vals = [v.default for v in params.values()]
         kinds = [v.kind for v in params.values()]
         default_mask = [True if v.default is not _empty else False
                         for v in params.values()]
-        dynamic_default_mask = [True if isinstance(v.default, _default) else False
+        dynamic_default_mask = [True if isinstance(v.default, default) else False
                                 for v in params.values()]
         del params
 
@@ -174,7 +171,7 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
         if force_wrap or has_dynamic_defaults:
             func_alias = 'func'
             wrapper_alias = 'wrapper'
-            default_alias = 'default'
+            default_alias = default.__name__
             while func_alias in names:
                 func_alias = '_' + func_alias
             while wrapper_alias in names:
@@ -182,12 +179,12 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
             while default_alias in names:
                 default_alias = '_' + default_alias
             context = {
-                default_alias: _default,
+                default_alias: default,
                 func_alias: func
             }
 
             expr = f'def {wrapper_alias}('
-            for i, (name, kind, default_val) in enumerate(zip(names, kinds, defaults)):
+            for i, (name, kind, default_val) in enumerate(zip(names, kinds, default_vals)):
                 if default_mask[i]:
                     context[f'{name}_'] = default_val
                 expr += '{}{}'.format('*' if kind == 2 else '**' if kind == 4 else '', name)
@@ -195,7 +192,7 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
                     expr += f'={name}_'
                 if i < n_params - 1:
                     expr += ', '
-            expr += f'):\n\treturn {func_alias}('
+            expr += f'): return {func_alias}('
             for i, (name, kind) in enumerate(zip(names, kinds)):
                 if kind == 2:
                     expr += '*'
@@ -205,10 +202,10 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
                 if kind == 3:
                     expr += f'={name}'
                 if dynamic_default_mask[i]:
-                    expr += f'.value if isinstance({name}, {default_alias}) else {name}'
+                    expr += f'._value if isinstance({name}, {default_alias}) else {name}'
                 if i < n_params - 1:
                     expr += ', '
-            expr += ')\n'
+            expr += ')'
             exec_locals = {}
             exec(compile(expr, f'<{func.__name__}_wrapper>', 'exec'), context, exec_locals)
             wrapper = wraps(func)(exec_locals[wrapper_alias])
@@ -222,18 +219,19 @@ def dynamic_default_args(format_doc=True, force_wrap=False):
             if len(format_keys):
                 # format docstring
                 wrapper.__default_doc__ = wrapper.__doc__
-                format_keys_ids = [i for i in range(n_params) if names[i] in format_keys]
+                format_keys_ids = [i for i in range(n_params)
+                                   if names[i] in format_keys and default_mask[i]]
 
                 def update_docstring(*args, **kwargs):
                     wrapper.__doc__ = wrapper.__default_doc__.format_map(format_dict({
-                        names[i]: defaults[i].value if dynamic_default_mask[i]
-                        else defaults[i] for i in format_keys_ids if default_mask[i]}))
+                        names[i]: default_vals[i]._value if dynamic_default_mask[i]
+                        else default_vals[i] for i in format_keys_ids}))
 
                 update_docstring()
                 # automatic update later
                 for i in format_keys_ids:
                     if dynamic_default_mask[i]:
-                        defaults[i].connect(update_docstring)
+                        default_vals[i].connect(update_docstring)
 
         return wrapper
 

@@ -4,9 +4,9 @@ Python Dynamic Default Arguments
 ![PyPI](https://img.shields.io/pypi/v/dynamic-default-args)
 ![GitHub](https://img.shields.io/github/license/inspiros/dynamic-default-args)
 
-This package provides facilities to make default arguments of python's functions dynamic.
+This package provides facilities to make default arguments of Python's functions dynamic.
 
-### Context
+## Context
 
 This code is extracted from another project of mine.
 It solves a problem that was also mentioned in
@@ -47,11 +47,11 @@ But the point is, it doesn't look nice.
 This module's solution limits to a single wrapper function, which is `compile`d from string to minimize overheads on
 runtime.
 
-### Requirements
+## Requirements
 
 - Python 3
 
-### Installation
+## Installation
 
 [dynamic-default-args](https://pypi.org/project/dynamic-default-args/) is available on PyPI, this is a pure Python
 package.
@@ -60,7 +60,7 @@ package.
 pip install dynamic-default-args
 ```
 
-### Usage
+## Usage
 
 This package provides two components:
 
@@ -70,9 +70,10 @@ This package provides two components:
 - `dynamic_default_args`: A function decorator for substituting any given `named_default` with its value when function
   is called.
 
-#### Creating a `named_default`:
+### Creating a `named_default`:
 
 There are 3 ways to initialize a `named_default`:
+
 - Pass a pair of positional arguments `named_default([name], [value])`
 - Pass the two keywords `named_default(name=[name], value=[value])`
 - Pass a single keyword argument `named_default([name]=[value])`.
@@ -107,7 +108,7 @@ print(named_default('an_unregistered_name').value)
 # ValueError: an_unregistered_name has not been registered.
 ```
 
-#### Decorating function with `dynamic_default_args`:
+### Decorating function with `dynamic_default_args`:
 
 Here is an example in [`example.py`](examples/example.py) on Python 3.8+:
 
@@ -151,46 +152,53 @@ foo(0)
 # Called with: a0=0, a1=5, a2=3, a3=slice(0, 3, None), a4=-1, a5=(), a6=None, a7=python, a8={}
 ```
 
-##### How it works?
+#### How it works?
 
-Internally, the auto generated wrapper for this function will be (without format):
+Internally, the auto generated wrapper with similar signature for this function will be (without formatting):
+
 ```python
 def wrapper(a0, a1=a1_, a2=a2_, a3=a3_, a4=a4_, *a5, a6=a6_, a7=a7_, **a8):
     func(a0,
-         a1.value if isinstance(a1, default) else a1,
+         a1._value if isinstance(a1, default) else a1,
          a2,
-         a3.value if isinstance(a3, default) else a3,
+         a3._value if isinstance(a3, default) else a3,
          a4,
          *a5,
          a6=a6,
-         a7=a7.value if isinstance(a7, default) else a7,
+         a7=a7._value if isinstance(a7, default) else a7,
          **a8)
 ```
 
-whose defaults are those of `func`(`=foo`), but the contained `named_default`s will be type checked and have
+whose defaults are set to those of `func`(`=foo`), but the contained `named_default`s will be type checked and have
 their values forwarded instead.
 How the arguments are forwared depend on the type of arguments:
+
 - **Positional-only**: with its name, e.g.`a0`, `a1`, `a2`
 - **Keyword-or-position**: with its name, e.g. `a3`, `a4`
 - **Varargs**: with an asterisk operator, e.g. `*a5`
 - **Keyword-only**: with its name as key, e.g. `a6=a6`, `a7=a7`
 - **Varkeywords**: with double asterick operator, e.g. `**a8`
 
-**Note:** _For those who don't know, the type of argument depends on its position relative to the 3 syntax's `/`, `*`, and `**`:_
+**Note:** _For those who don't know, the type of argument depends on its position relative to the 3 syntax's `/`, `*`,
+and `**`:_
+
 ```python
 def f(po0, ..., /, pok0, ..., *args, kw0, kw1, ..., **kwargs):
-      ----------   --------    |     --------------    |
-      |            |           |     |                 |
-      |            Positional- |     |             Varkeywords
-      |            or-keyword  |     Keyword-only
-      Positional-only        Varargs  
+    ----------   -------- | -------------- |
+    | | | | |
+    | Positional - | | Varkeywords
+    | or -keyword | Keyword - only
+    Positional - only
+    Varargs  
 ```
 
-The aliases `wrapper, func, default` are assured to be different from the original arguments' names.
+**Note:** _The aliases `wrapper, func, default` are assured to be different from the original arguments' names._
 
-By passing `format_doc=True` (which is the default behavior), the decorator will try to bind default values of argument
-with names defined in format keys of the docstring.
-Any modification to the dynamic default values will update the docstring with an event.
+#### Docstring formatting
+
+By configuring `@named_default_args(format_doc=True)` (which is the default behavior), the decorator will try to bind
+the default values of arguments with names defined in format keys `{[argument_name]}` in the docstring.
+Any modification to the `value` property of `named_default` will update the docstring with an event.
 
 ```python
 named_default('a1').value *= 2
@@ -219,8 +227,8 @@ foo(a0, a1=10, a2=3, /, a3=range(0, 10), a4=-1, *a5, a6=None, a7='rust', **a8)
 
 #### Binding
 
-The `named_default` object will emit an event to all registered listeners, which can be set by calling `.connect`
-method:
+The `named_default` object will emit an event to all registered listeners when its `value` property is modified. 
+You can register your own handler by calling `.connect` method:
 
 ```python
 from dynamic_default_args import named_default
@@ -233,6 +241,13 @@ def on_variable_changed(value):
 
 
 variable.connect(on_variable_changed)
+
+# modifying the slot has no effect
+# but accessing its value is much faster this way
+variable._value = 'this doesn\'t work'
+
+variable.value = 'this works!'
+# Changed to this works!
 ```
 
 ### Limitations
@@ -241,7 +256,7 @@ This solution relies on function introspection provided by the `inspect` module,
 functions (including C/C++ extensions).
 However, you can wrap them with your own Python function.
 
-For **Cython** users, a `def` or `cpdef` (might be inspected incorrectly) function defined in `.pyx` files can be
+For **Cython** users, a `def` or `cpdef` (which might be inspected incorrectly) function defined in `.pyx` files can be
 decorated by setting `binding=True`.
 
 ```cython
