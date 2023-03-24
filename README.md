@@ -4,7 +4,7 @@ Python Dynamic Default Arguments
 ![PyPI](https://img.shields.io/pypi/v/dynamic-default-args)
 ![GitHub](https://img.shields.io/github/license/inspiros/dynamic-default-args)
 
-This package provides facilities to make default arguments of Python's functions dynamic.
+This package provides facilities to make default arguments of Python's functions dynamic (in an elegant manner).
 
 ## Context
 
@@ -12,7 +12,6 @@ This code is extracted from another project of mine.
 It solves a problem that was also mentioned in
 this [stackoverflow thread](https://stackoverflow.com/questions/16960469/dynamic-default-arguments-in-python-functions).
 
-It turns out that changing functions' default arguments in an elegant way is a lot harder than what we think.
 The common approach is to define a function that retrieves the value of the _default_ argument stored somewhere:
 
 ```python
@@ -108,7 +107,7 @@ print(named_default('an_unregistered_name').value)
 # ValueError: an_unregistered_name has not been registered.
 ```
 
-### Decorating function with `dynamic_default_args`:
+### Decorating functions with `dynamic_default_args`:
 
 Here is an example in [`example.py`](examples/example.py) on Python 3.8+:
 
@@ -183,13 +182,12 @@ How the arguments are forwared depend on the type of arguments:
 and `**`:_
 
 ```python
-def f(po0, ..., /, pok0, ..., *args, kw0, kw1, ..., **kwargs):
-    ----------   -------- | -------------- |
-    | | | | |
-    | Positional - | | Varkeywords
-    | or -keyword | Keyword - only
-    Positional - only
-    Varargs  
+def f(po0, ___, /, pok0, ____, *args, kw0, kw1, _____, **kwargs):
+#    ---------     -----------    |   ----------------     |
+#    |             |              |   |                    |
+#    |             Positional -   |   |                Varkeywords
+#    |             or -keyword    |   Keyword - only
+#    Positional - only         Varargs
 ```
 
 **Note:** _The aliases `wrapper, func, default` are assured to be different from the original arguments' names._
