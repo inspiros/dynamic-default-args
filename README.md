@@ -8,8 +8,7 @@ This package provides facilities to make default arguments of Python's functions
 
 ## Context
 
-This code is extracted from another project of mine.
-It solves a problem that was also mentioned in
+The package solves a problem that was also mentioned in
 this [stackoverflow thread](https://stackoverflow.com/questions/16960469/dynamic-default-arguments-in-python-functions).
 
 The common approach is to define a function that retrieves the value of the _default_ argument stored somewhere:
@@ -188,6 +187,7 @@ def f(po0, ___, /, pok0, ____, *args, kw0, kw1, _____, **kwargs):
 #    |             Positional -   |   |                Varkeywords
 #    |             or -keyword    |   Keyword - only
 #    Positional - only         Varargs
+    ...
 ```
 
 **Note:** _The aliases `wrapper, func, default` are assured to be different from the original arguments' names._
