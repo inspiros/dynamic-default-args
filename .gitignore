@@ -346,9 +346,5 @@ dist/
 wheelhouse/
 *.egg-info/
 .venv/
-develop/build/
-develop/test-build/
-develop/python/
-develop/uv-cache/
-develop/wheel-env/
-develop/build-release.log
+/develop/
+/.maintainer/

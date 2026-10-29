@@ -3,13 +3,17 @@ from functools import partial, update_wrapper
 import inspect
 import re
 import sys
-from types import FunctionType
-from typing import Callable, Mapping, Optional, ParamSpec, TypeVar, overload
+from types import FunctionType, MethodType
+from typing import TYPE_CHECKING, Callable, Mapping, Optional, TypeVar, overload
 
-from .defaults import default, default_factory, named_default
+from .defaults import _callable_target, default, default_factory, named_default
 
 __all__ = ["default", "named_default", "default_factory", "dynamic_default_args"]
-_P = ParamSpec("_P")
+if TYPE_CHECKING or sys.version_info >= (3, 10):
+    from typing import ParamSpec
+    _P = ParamSpec("_P")
+else:  # Before 3.10, the runtime hints degrade to Callable[..., _R].
+    _P = ...
 _R = TypeVar("_R")
 _MARKERS = (default, default_factory)
 _EMPTY = inspect.Parameter.empty
@@ -23,17 +27,54 @@ class _Source:
         return self.text
 
 
+def _annotation_free_view(target):
+    if getattr(target, "__signature__", None) is not None:
+        return target
+    if inspect.ismethod(target):
+        return MethodType(_annotation_free_view(target.__func__), target.__self__)
+    unwrapped = inspect.unwrap(target, stop=lambda f: getattr(f, "__signature__", None) is not None)
+    if unwrapped is not target:
+        return _annotation_free_view(unwrapped)
+    if isinstance(target, partial):
+        return partial(_annotation_free_view(target.func), *target.args, **target.keywords)
+    if inspect.isfunction(target):
+        # Even annotationlib's STRING format may execute annotation code.
+        # A temporary function view gives inspect only binding metadata.
+        view = FunctionType(target.__code__, target.__globals__, target.__name__,
+                            target.__defaults__, target.__closure__)
+        view.__kwdefaults__ = target.__kwdefaults__
+        return view
+    elif not inspect.isroutine(target) and not inspect.isclass(target):
+        return _annotation_free_view(_callable_target(target))
+    return target
+
+
 def _binding_signature(target):
-    if sys.version_info >= (3, 14) and inspect.isfunction(target):
-        target = inspect.unwrap(target, stop=lambda f: getattr(f, "__signature__", None) is not None)
-        if inspect.isfunction(target) and getattr(target, "__signature__", None) is None:
-            # Even annotationlib's STRING format may execute annotation code.
-            # A temporary function view gives inspect only binding metadata.
-            view = FunctionType(target.__code__, target.__globals__, target.__name__,
-                                target.__defaults__, target.__closure__)
-            view.__kwdefaults__ = target.__kwdefaults__
-            return inspect.signature(view)
-    return inspect.signature(target)
+    view = _annotation_free_view(target) if sys.version_info >= (3, 14) else target
+    return inspect.signature(view)
+
+
+def _bound_arguments(target):
+    """Recover dependency values hidden by method and partial binding."""
+    if isinstance(target, partial):
+        values = _bound_arguments(target.func)
+        base_signature = _binding_signature(target.func)
+        bound = base_signature.bind_partial(*target.args, **target.keywords)
+        for name, value in bound.arguments.items():
+            kind = base_signature.parameters[name].kind
+            if kind is inspect.Parameter.VAR_POSITIONAL:
+                value = values.get(name, ()) + value
+            elif kind is inspect.Parameter.VAR_KEYWORD:
+                value = {**values.get(name, {}), **value}
+            values[name] = value
+        return values
+    if inspect.ismethod(target):
+        parameters = iter(_binding_signature(target.__func__).parameters)
+        name = next(parameters, None)
+        return {name: target.__self__} if name is not None else {}
+    if not inspect.isroutine(target) and not inspect.isclass(target):
+        return _bound_arguments(_callable_target(target))
+    return {}
 
 
 def _format_doc(wrapper, signature):
@@ -54,8 +95,14 @@ def _format_doc(wrapper, signature):
     def update(*_args, **_kwargs):
         current = {name: values[name].value if isinstance(values[name], default)
                    else values[name] for name in used}
-        wrapper.__doc__ = pattern.sub(
-            lambda match: match.group(0).format_map(current), template)
+
+        def render(match):
+            try:
+                return match.group(0).format_map(current)
+            except Exception:  # Docs must never break assignment to a shared value.
+                return match.group(0)
+
+        wrapper.__doc__ = pattern.sub(render, template)
 
     wrapper.__default_doc__ = template
     wrapper.__dynamic_doc_updater__ = update
@@ -99,9 +146,12 @@ def dynamic_default_args(func=None, *, format_doc=True, force_wrap=False,
 
     def decorate(target):
         if isinstance(target, (classmethod, staticmethod)):
-            return type(target)(decorate(target.__func__))
+            wrapped = decorate(target.__func__)
+            return target if wrapped is target.__func__ else type(target)(wrapped)
         if inspect.ismethod(target) and signature is None:
-            return decorate(target.__func__).__get__(target.__self__, type(target.__self__))
+            wrapped = decorate(target.__func__)
+            return (target if wrapped is target.__func__ else
+                    wrapped.__get__(target.__self__, type(target.__self__)))
         if not callable(target):
             raise TypeError("dynamic_default_args requires a callable")
         if signature is not None and not isinstance(signature, inspect.Signature):
@@ -129,10 +179,17 @@ def dynamic_default_args(func=None, *, format_doc=True, force_wrap=False,
         except ValueError as exc:
             raise ValueError(f"Dynamic defaults produce an invalid signature: {exc}") from exc
         dynamic = []
-        earlier = set()
+        bound_arguments = {} if signature is not None else _bound_arguments(target)
+        bound_values = {name: value for name, value in bound_arguments.items()
+                        if name not in parameters}
+        prefixes = {name: value for name, value in bound_arguments.items()
+                    if name in parameters
+                    and parameters[name].kind is inspect.Parameter.VAR_POSITIONAL}
+        earlier = set(bound_values)
         for parameter in parameters.values():
             marker = parameter.default
-            if isinstance(marker, _MARKERS):
+            explicitly_bound = parameter.name in bound_arguments and parameter.name not in overrides
+            if isinstance(marker, _MARKERS) and not explicitly_bound:
                 dependencies = marker.depends_on if isinstance(marker, default_factory) else ()
                 if any(name not in earlier for name in dependencies):
                     raise ValueError(f"Factory for {parameter.name} must depend on earlier parameters")
@@ -153,7 +210,8 @@ def dynamic_default_args(func=None, *, format_doc=True, force_wrap=False,
             public_signature = evaluated.replace(parameters=[
                 p.replace(default=parameters[p.name].default)
                 for p in evaluated.parameters.values()])
-        wrapper = _make_wrapper(target, public_signature, dynamic, expose_signature)
+        wrapper = _make_wrapper(target, public_signature, dynamic, expose_signature,
+                                bound_values, prefixes)
         if format_doc:
             _format_doc(wrapper, public_signature)
         return wrapper
@@ -161,19 +219,22 @@ def dynamic_default_args(func=None, *, format_doc=True, force_wrap=False,
     return decorate if func is None else decorate(func)
 
 
-def _make_wrapper(target, signature, dynamic, expose_signature):
+def _make_wrapper(target, signature, dynamic, expose_signature, bound_values, prefixes):
     parameters = list(signature.parameters.values())
     prefix = "_dda_"
     while any(p.name.startswith(prefix) for p in parameters):
         prefix = "_" + prefix
-    alias = lambda name: prefix + name
+    def alias(name):
+        return prefix + name
     missing = object()
     dynamic_names = {name for name, _, _ in dynamic}
     context = {alias("target"): target, alias("missing"): missing,
                alias("defaults"): tuple(p.default for p in parameters),
                alias("resolvers"): tuple(marker._resolve for _, marker, _ in dynamic),
+               alias("bound"): bound_values,
+               alias("prefixes"): prefixes,
                alias("StopAsyncIteration"): StopAsyncIteration,
-               alias("GeneratorExit"): GeneratorExit, alias("BaseException"): BaseException}
+               alias("BaseException"): BaseException}
     rendered = []
     forwarded = []
     for index, parameter in enumerate(parameters):
@@ -191,24 +252,29 @@ def _make_wrapper(target, signature, dynamic, expose_signature):
         else:
             forwarded.append(parameter.name)
     definition_signature = inspect.Signature(rendered)
-    kind_target = (target if inspect.isroutine(target) or isinstance(target, partial)
-                   else target.__call__)
+    kind_target = _callable_target(target)
     is_asyncgen = inspect.isasyncgenfunction(kind_target)
     is_coroutine = inspect.iscoroutinefunction(kind_target)
     is_generator = inspect.isgeneratorfunction(kind_target)
     keyword = "async def" if is_coroutine or is_asyncgen else "def"
     lines = [f"{keyword} {alias('wrapper')}{definition_signature}:"]
     for index, (name, marker, dependencies) in enumerate(dynamic):
+        arguments = []
+        for dependency in dependencies:
+            if dependency in bound_values:
+                arguments.append(f"{alias('bound')}[{dependency!r}]")
+            elif dependency in prefixes:
+                arguments.append(f"{alias('prefixes')}[{dependency!r}] + {dependency}")
+            else:
+                arguments.append(dependency)
         lines += [f"    if {name} is {alias('missing')}:",
-                  f"        {name} = {alias('resolvers')}[{index}]({', '.join(dependencies)})"]
+                  f"        {name} = {alias('resolvers')}[{index}]({', '.join(arguments)})"]
     call = f"{alias('target')}({', '.join(forwarded)})"
     if is_asyncgen:
         gen, item, sent, error = map(alias, ("gen", "item", "sent", "error"))
         lines += [f"    {gen} = {call}", "    try:",
                   f"        {item} = await {gen}.__anext__()", "        while True:",
                   "            try:", f"                {sent} = yield {item}",
-                  f"            except {alias('GeneratorExit')}:",
-                  f"                await {gen}.aclose()", "                raise",
                   f"            except {alias('BaseException')} as {error}:",
                   f"                {item} = await {gen}.athrow({error})",
                   "            else:", f"                {item} = await {gen}.asend({sent})",

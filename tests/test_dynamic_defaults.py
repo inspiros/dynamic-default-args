@@ -394,7 +394,7 @@ class AsyncDefaultsTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(inspect.isasyncgenfunction(f))
         iterator = f()
-        self.assertEqual(await anext(iterator), 1)
+        self.assertEqual(await iterator.__anext__(), 1)
         self.assertEqual(await iterator.asend(7), 7)
         self.assertEqual(await iterator.athrow(LookupError()), 99)
         await iterator.aclose()
@@ -415,9 +415,9 @@ class AsyncDefaultsTest(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError("boom")
 
         iterator = fail()
-        await anext(iterator)
+        await iterator.__anext__()
         with self.assertRaisesRegex(RuntimeError, "boom"):
-            await anext(iterator)
+            await iterator.__anext__()
 
 
 class GeneratorDefaultsTest(unittest.TestCase):

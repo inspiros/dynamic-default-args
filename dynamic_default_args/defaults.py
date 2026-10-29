@@ -1,11 +1,22 @@
 """Shared values and factories used by the decorator."""
 import inspect
+from functools import partial
 from threading import RLock
 
 from .event import Event
 
 __all__ = ["default", "named_default", "default_factory"]
 _MISSING = object()
+
+
+def _callable_target(target):
+    """Find the function Python actually calls, ignoring instance shadowing."""
+    if isinstance(target, partial) and type(target).__call__ is partial.__call__:
+        return _callable_target(target.func)
+    if inspect.isroutine(target):
+        return target
+    call = inspect.getattr_static(type(target), "__call__")
+    return call.__get__(target, type(target)) if hasattr(call, "__get__") else call
 
 
 class default(Event):
@@ -81,7 +92,8 @@ class default_factory:
     def __init__(self, factory, *, depends_on=()):
         if not callable(factory):
             raise TypeError("A default factory must be callable")
-        if inspect.iscoroutinefunction(factory) or inspect.isasyncgenfunction(factory):
+        function = _callable_target(factory)
+        if inspect.iscoroutinefunction(function) or inspect.isasyncgenfunction(function):
             raise TypeError("Default factories must be synchronous")
         if isinstance(depends_on, str):
             raise TypeError("depends_on must be a sequence of parameter names")

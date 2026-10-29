@@ -13,7 +13,11 @@
 - Use weak internal documentation subscriptions and snapshot event dispatch.
 - Preserve literal docstring braces and unknown placeholders.
 - Add named-default registry removal.
-- Consolidate packaging in pyproject.toml and replace the release workflow with
-  test/build jobs and PyPI trusted publishing.
-- Require Python 3.10+. Explicit arguments, including marker instances, now pass
-  through unchanged. See [migration notes](api.md#migrating-from-006).
+- Preserve factory dependencies through callable-instance and partial binding,
+  including partial-bound variadic arguments.
+- Correct async-generator forwarding of explicit `GeneratorExit` and ignore
+  instance attributes shadowing the type's `__call__` implementation.
+- Consolidate packaging in pyproject.toml. Publish manually from a version tag
+  after its tests pass, with a pure-Python wheel alongside the source archive.
+- Require Python 3.8+. Explicit arguments, including marker instances, now pass
+  through unchanged.

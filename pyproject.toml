@@ -7,9 +7,9 @@ name = "dynamic-default-args"
 dynamic = ["version"]
 description = "Shared and per-call dynamic defaults for Python functions and methods"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.8"
 license = "MIT-0"
-license-files = ["LICENSE.txt"]
+license-files = ["LICENSE"]
 authors = [{name = "Hoang-Nhat Tran (inspiros)", email = "hnhat.tran@gmail.com"}]
 keywords = ["dynamic-default-args", "default-arguments", "default-factory"]
 classifiers = [
@@ -18,6 +18,8 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -28,7 +30,7 @@ classifiers = [
 
 [project.urls]
 Source = "https://github.com/inspiros/dynamic-default-args"
-Documentation = "https://github.com/inspiros/dynamic-default-args/tree/master/docs"
+Documentation = "https://github.com/inspiros/dynamic-default-args#readme"
 Issues = "https://github.com/inspiros/dynamic-default-args/issues"
 
 [project.optional-dependencies]
