@@ -1,5 +1,14 @@
 # Development and releases
 
+## Python support policy
+
+Version 0.1.0 tests Python 3.10–3.15. Python 3.11+ is the upstream-maintained
+baseline as of October 2026; 3.10 is retained as a tested compatibility concession
+for this release. Python 3.8 and 3.9 are outside the new support guarantee.
+Adding older versions should be driven by concrete downstream demand and include
+compatible tooling and CI, rather than an untested metadata claim. See the
+[official Python lifecycle table](https://devguide.python.org/versions/).
+
 ## Local setup
 
 ```bash

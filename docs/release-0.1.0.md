@@ -31,6 +31,10 @@ Compiling copied fixture sources with relative paths keeps generated paths short
 The [GitHub Actions workflow](https://github.com/inspiros/dynamic-default-args/actions/workflows/build_wheels.yml)
 adds the Linux, Windows, and macOS matrix. Local results above do not establish
 Windows/macOS results; consult the workflow run for the release commit.
+The [completed validation run](https://github.com/inspiros/dynamic-default-args/actions/runs/40802852681)
+passed all 18 platform/version combinations, including compiled integration
+tests, and the distribution build. The subsequent changes record these results
+and the Python support policy; they do not alter runtime or test code.
 
 ## Microbenchmark
 
