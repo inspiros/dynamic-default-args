@@ -25,7 +25,7 @@ Or from a local checkout (Python 3.9+):
 python -m pip install .
 ```
 
-## Shared defaults
+## Shared Defaults
 
 ```python
 from dynamic_default_args import default, default_factory, dynamic_default_args
@@ -86,7 +86,7 @@ assert client.request() == 10
 
 Class-method factories can similarly depend on `cls`.
 
-## Named defaults
+## Named Defaults
 
 Use `named_default` to retrieve a shared cell across modules:
 
@@ -101,7 +101,7 @@ named_default.unregister("myapp.timeout")
 
 The first registration wins; later initialization values are ignored.
 
-## Defaults outside the signature
+## Defaults Outside the Signature
 
 The `defaults` mapping is useful for typed functions and Cython parameters:
 
@@ -122,7 +122,7 @@ through this mapping. Python wrappers around `cpdef` are supported; C-level call
 retain native defaults. See [the Cython example](https://github.com/inspiros/dynamic-default-args/blob/master/examples/cython_defaults.pyx) and
 its [build-and-run helper](https://github.com/inspiros/dynamic-default-args/blob/master/examples/build_cython.py).
 
-## Other features
+## Other Features
 
 - Preserves positional-only, keyword-only, and variadic argument binding.
 - Supports partials, callable instances, and inspectable built-ins.
