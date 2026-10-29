@@ -23,6 +23,8 @@ and new Python examples run successfully in the local editable environment.
 The wheel was also installed into an isolated environment and its 40 unit tests
 passed from outside the checkout (with the expected PEP 649 and optional Cython
 skips). Its imported package path was verified to be the installed wheel.
+Fresh-environment CI exposed a missing setuptools dependency in the optional
+Cython build/test extra; that dependency is now declared explicitly.
 
 The [GitHub Actions workflow](https://github.com/inspiros/dynamic-default-args/actions/workflows/build_wheels.yml)
 adds the Linux, Windows, and macOS matrix. Local results above do not establish
