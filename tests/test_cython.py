@@ -3,6 +3,7 @@ import importlib
 import inspect
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import unittest
@@ -15,15 +16,20 @@ def build_fixture():
     from setuptools import Distribution, Extension
 
     output = ROOT / "develop" / "test-build" / sys.implementation.cache_tag
+    output.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(ROOT / "tests" / "cython" / "fixtures.pyx", output / "fixture.pyx")
+    # This function runs only in the compiler subprocess. Relative sources avoid
+    # duplicated absolute directories exceeding MSVC's linker path limit.
+    os.chdir(output)
     extensions = cythonize(
-        [Extension("_dda_cython_fixture", [str(ROOT / "tests" / "cython" / "fixtures.pyx")])],
+        [Extension("_dda_cython_fixture", ["fixture.pyx"])],
         compiler_directives={"language_level": 3, "binding": True},
-        build_dir=str(output / "generated"), quiet=True,
+        build_dir="generated", quiet=True,
     )
     distribution = Distribution({"ext_modules": extensions})
     command = distribution.get_command_obj("build_ext")
-    command.build_lib = str(output)
-    command.build_temp = str(output / "temp")
+    command.build_lib = "."
+    command.build_temp = "temp"
     distribution.run_command("build_ext")
     return output
 
