@@ -1,238 +1,227 @@
+"""Generate wrappers with native Python argument binding."""
+from functools import partial, update_wrapper
 import inspect
-import string
-from functools import wraps
-from typing import Optional, Any
+import re
+import sys
+from types import FunctionType
+from typing import Callable, Mapping, Optional, ParamSpec, TypeVar, overload
 
-from .event import Event
-from .format_dict import format_dict
+from .defaults import default, default_factory, named_default
 
-__all__ = [
-    'default',
-    'named_default',
-    'dynamic_default_args',
-]
-
-_empty = __import__('inspect')._empty
+__all__ = ["default", "named_default", "default_factory", "dynamic_default_args"]
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+_MARKERS = (default, default_factory)
+_EMPTY = inspect.Parameter.empty
 
 
-# noinspection PyPep8Naming
-class default(Event):
-    __slots__ = '_value'
-
-    def __init__(self, value):
-        super().__init__()
-        self._value = value
+class _Source:
+    def __init__(self, text):
+        self.text = text
 
     def __repr__(self):
-        return repr(self._value)
-
-    def __eq__(self, other):
-        if isinstance(other, default):
-            return self._value == other._value
-        return self._value == other
-
-    @property
-    def value(self):
-        return self._value
-
-    @value.setter
-    def value(self, value):
-        self._value = value
-        self.emit(value)
+        return self.text
 
 
-class _NamedDefaultMeta(type):
-    _instances = {}
-
-    def _get_init_error_msg(cls, name, value, **kwargs):
-        _init_error_msg = 'Define named default with one string and one value, ' \
-                          'either by passing them as positional arguments ' \
-                          '`{cls}([name], [value])`, as keywords ' \
-                          '`{cls}(name=[name], value=[value])`, ' \
-                          'or a single keyword argument `{cls}([name]=[value])`. ' \
-                          '\nGot {cls}({args}).'
-        _called_args = ''
-        if name is not _empty:
-            _called_args = f'name={name}'
-            if value is not _empty:
-                _called_args += ', '
-        if value is not _empty:
-            _called_args += f'value={value}'
-        if len(_called_args) and len(kwargs):
-            _called_args += ', '
-        _called_args += ', '.join(f'{k}={v}' for k, v in kwargs.items())
-        return _init_error_msg.format(cls=cls.__name__, args=_called_args)
-
-    def __call__(cls, name=_empty, value=_empty, **kwargs):
-        has_value = value is not _empty
-        from_args = name is not _empty
-        from_kwargs = len(kwargs) == 1
-        if not from_args ^ from_kwargs:
-            raise ValueError(cls._get_init_error_msg(name, value, **kwargs))
-        if from_args:
-            if not isinstance(name, str):
-                raise ValueError(f'Name must be string. Got {type(name)}.')
-            elif not has_value and name not in cls._instances:
-                raise ValueError(f'{name} has not been registered.')
-            value = value if has_value else None
-        else:  # from_kwargs
-            if has_value:
-                raise ValueError(cls._get_init_error_msg(name, value, **kwargs))
-            name, value = next(iter(kwargs.items()))
-        if name not in cls._instances:
-            cls._instances[name] = super(_NamedDefaultMeta, cls).__call__(name, value)
-        return cls._instances[name]
+def _binding_signature(target):
+    if sys.version_info >= (3, 14) and inspect.isfunction(target):
+        target = inspect.unwrap(target, stop=lambda f: getattr(f, "__signature__", None) is not None)
+        if inspect.isfunction(target) and getattr(target, "__signature__", None) is None:
+            # Even annotationlib's STRING format may execute annotation code.
+            # A temporary function view gives inspect only binding metadata.
+            view = FunctionType(target.__code__, target.__globals__, target.__name__,
+                                target.__defaults__, target.__closure__)
+            view.__kwdefaults__ = target.__kwdefaults__
+            return inspect.signature(view)
+    return inspect.signature(target)
 
 
-# noinspection PyPep8Naming
-class named_default(default, metaclass=_NamedDefaultMeta):
-    """A named default object that holds a default value
-    for arguments, which can be dynamically changed later.
+def _format_doc(wrapper, signature):
+    template = wrapper.__doc__
+    if not template:
+        return
+    values = {p.name: p.default for p in signature.parameters.values()
+              if p.default is not _EMPTY and not isinstance(p.default, default_factory)}
+    if not values:
+        return
+    # Substitute only known simple fields; preserve JSON and escaped braces.
+    fields = "|".join(re.escape(name) for name in values)
+    pattern = re.compile(r"(?<!\{)\{(" + fields + r")(![rsa])?(:[^{}]*)?\}(?!\})")
+    used = {match.group(1) for match in pattern.finditer(template)}
+    if not used:
+        return
 
-    The constructor accepts passing two positional arguments name
-    and value. If value is not provided and the name hasn't been
-    registered, an Exception will be raised.
+    def update(*_args, **_kwargs):
+        current = {name: values[name].value if isinstance(values[name], default)
+                   else values[name] for name in used}
+        wrapper.__doc__ = pattern.sub(
+            lambda match: match.group(0).format_map(current), template)
 
-    >>> x = named_default('x', 0.5)
+    wrapper.__default_doc__ = template
+    wrapper.__dynamic_doc_updater__ = update
+    update()
+    for name in used:
+        if isinstance(values[name], default):
+            values[name].connect(update, weak=True)
 
-    Or more expressively:
 
-    >>> x = named_default(name='x', value=0.5)
+def _has_doc_fields(target, signature):
+    template = getattr(target, "__doc__", None)
+    if not template:
+        return False
+    return any(re.search(r"(?<!\{)\{" + re.escape(p.name) + r"(?:![rsa])?(?::[^{}]*)?\}(?!\})", template)
+               for p in signature.parameters.values() if p.default is not _EMPTY)
 
-    Ortherwise, use a single keyword argument. The keyword will
-    be used as name.
 
-    >>> x = named_default(x=1)
+@overload
+def dynamic_default_args(func: Callable[_P, _R], *, format_doc: bool = True,
+                         force_wrap: bool = False, defaults: Optional[Mapping] = None,
+                         signature: Optional[inspect.Signature] = None) -> Callable[_P, _R]: ...
 
-    For modifying the default values everywhere, call this function
-    with only the name of defined variable. Any value provided will
-    have no effect.
 
-    >>> named_default('x').value = 2.0
+@overload
+def dynamic_default_args(func: None = None, *, format_doc: bool = True,
+                         force_wrap: bool = False, defaults: Optional[Mapping] = None,
+                         signature: Optional[inspect.Signature] = None
+                         ) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]: ...
+
+
+def dynamic_default_args(func=None, *, format_doc=True, force_wrap=False,
+                         defaults=None, signature=None):
+    """Resolve shared values and factories only for omitted arguments.
+
+    ``defaults={name: marker}`` supplies defaults outside a function definition,
+    including for Cython functions with C-typed parameters. An explicit
+    ``inspect.Signature`` can adapt callables without signature metadata.
     """
+    if isinstance(func, bool):  # Legacy positional format_doc option.
+        format_doc, func = func, None
 
-    __slots__ = 'name'
-
-    def __init__(self,
-                 name: Optional[str] = None,
-                 value: Optional[Any] = None,
-                 **kwargs):
-        super().__init__(value)
-        self.name = name
-
-
-def dynamic_default_args(format_doc=True, force_wrap=False):
-    """
-    A decorator for substituting function with dynamic default
-    arguments with minimal overhead.
-
-    It can also will modify the function's docstring with
-    format keys automatically when any of the default args changes.
-
-    >>> @dynamic_default_args(format_doc=True)
-    >>> def foo(x=named_default(x=5))
-    >>>     \"\"\"An exmaple function with docstring.
-    >>>
-    >>>     Args:
-    >>>         x: Argument dynamically defaults to {x}.
-    >>>     \"\"\"
-    >>>     ...
-
-    When the default value is changed later, both the default and
-    the function's docstring will be updated accordingly.
-
-    >>> named_default('x').value = 10
-    >>> foo()
-    10
-    >>> help(foo)
-
-    Args:
-        format_doc: Automatically format the docstring of the
-         decorated function or not. Defaults to ``True``.
-        force_wrap: Wrap the decorated function even if there
-         is no dynamic default argument or not.
-         Defaults to ``False``.
-    """
-
-    def decorator(func):
-        params = inspect.signature(func).parameters
-        n_params = len(params)
-
-        names = list(params.keys())
-        default_vals = [v.default for v in params.values()]
-        kinds = [v.kind for v in params.values()]
-        default_mask = [True if v.default is not _empty else False
-                        for v in params.values()]
-        dynamic_default_mask = [True if isinstance(v.default, default) else False
-                                for v in params.values()]
-        del params
-
-        has_dynamic_defaults = any(dynamic_default_mask)
-        if force_wrap or has_dynamic_defaults:
-            func_alias = 'func'
-            wrapper_alias = 'wrapper'
-            default_alias = default.__name__
-            while func_alias in names:
-                func_alias = '_' + func_alias
-            while wrapper_alias in names:
-                wrapper_alias = '_' + wrapper_alias
-            while default_alias in names:
-                default_alias = '_' + default_alias
-            context = {
-                default_alias: default,
-                func_alias: func
-            }
-
-            expr = f'def {wrapper_alias}('
-            for i, (name, kind, default_val) in enumerate(zip(names, kinds, default_vals)):
-                if default_mask[i]:
-                    context[f'{name}_'] = default_val
-                expr += '{}{}'.format('*' if kind == 2 else '**' if kind == 4 else '', name)
-                if default_val is not _empty:
-                    expr += f'={name}_'
-                if i < n_params - 1:
-                    expr += ', '
-            expr += f'): return {func_alias}('
-            for i, (name, kind) in enumerate(zip(names, kinds)):
-                if kind == 2:
-                    expr += '*'
-                elif kind == 4:
-                    expr += '**'
-                expr += name
-                if kind == 3:
-                    expr += f'={name}'
-                if dynamic_default_mask[i]:
-                    expr += f'._value if isinstance({name}, {default_alias}) else {name}'
-                if i < n_params - 1:
-                    expr += ', '
-            expr += ')'
-            exec_locals = {}
-            exec(compile(expr, f'<{func.__name__}_wrapper>', 'exec'), context, exec_locals)
-            wrapper = wraps(func)(exec_locals[wrapper_alias])
-        else:  # no wrapping
-            wrapper = func
-
-        if format_doc and wrapper.__doc__ is not None:
-            format_keys = set(_[1] for _ in string.Formatter().parse(wrapper.__doc__)
-                              if _[1] is not None)
-            format_keys = format_keys.intersection(names)
-            if len(format_keys):
-                # format docstring
-                wrapper.__default_doc__ = wrapper.__doc__
-                format_keys_ids = [i for i in range(n_params)
-                                   if names[i] in format_keys and default_mask[i]]
-
-                def update_docstring(*args, **kwargs):
-                    wrapper.__doc__ = wrapper.__default_doc__.format_map(format_dict({
-                        names[i]: default_vals[i]._value if dynamic_default_mask[i]
-                        else default_vals[i] for i in format_keys_ids}))
-
-                update_docstring()
-                # automatic update later
-                for i in format_keys_ids:
-                    if dynamic_default_mask[i]:
-                        default_vals[i].connect(update_docstring)
-
+    def decorate(target):
+        if isinstance(target, (classmethod, staticmethod)):
+            return type(target)(decorate(target.__func__))
+        if inspect.ismethod(target) and signature is None:
+            return decorate(target.__func__).__get__(target.__self__, type(target.__self__))
+        if not callable(target):
+            raise TypeError("dynamic_default_args requires a callable")
+        if signature is not None and not isinstance(signature, inspect.Signature):
+            raise TypeError("signature must be an inspect.Signature")
+        try:
+            if signature is not None:
+                original = signature
+            else:
+                original = _binding_signature(target)
+        except (TypeError, ValueError) as exc:
+            raise TypeError("Cannot inspect callable; supply signature=inspect.Signature(...)") from exc
+        parameters = dict(original.parameters)
+        overrides = {} if defaults is None else dict(defaults)
+        for name, marker in overrides.items():
+            if name not in parameters:
+                raise ValueError(f"Unknown parameter: {name}")
+            if not isinstance(marker, _MARKERS):
+                raise TypeError(f"Default for {name} must be default or default_factory")
+            if parameters[name].kind in (inspect.Parameter.VAR_POSITIONAL,
+                                          inspect.Parameter.VAR_KEYWORD):
+                raise ValueError("Variadic parameters cannot have dynamic defaults")
+            parameters[name] = parameters[name].replace(default=marker)
+        try:
+            public_signature = original.replace(parameters=parameters.values())
+        except ValueError as exc:
+            raise ValueError(f"Dynamic defaults produce an invalid signature: {exc}") from exc
+        dynamic = []
+        earlier = set()
+        for parameter in parameters.values():
+            marker = parameter.default
+            if isinstance(marker, _MARKERS):
+                dependencies = marker.depends_on if isinstance(marker, default_factory) else ()
+                if any(name not in earlier for name in dependencies):
+                    raise ValueError(f"Factory for {parameter.name} must depend on earlier parameters")
+                dynamic.append((parameter.name, marker, dependencies))
+            earlier.add(parameter.name)
+        if not dynamic and not force_wrap and signature is None:
+            if not format_doc or not _has_doc_fields(target, public_signature):
+                return target
+        expose_signature = bool(overrides) or signature is not None
+        if expose_signature and signature is None and sys.version_info >= (3, 14):
+            # An override needs an explicit public signature. Prefer evaluated
+            # annotations when available, and keep strings for forward references.
+            try:
+                evaluated = inspect.signature(target)
+            except NameError:
+                from annotationlib import Format
+                evaluated = inspect.signature(target, annotation_format=Format.STRING)
+            public_signature = evaluated.replace(parameters=[
+                p.replace(default=parameters[p.name].default)
+                for p in evaluated.parameters.values()])
+        wrapper = _make_wrapper(target, public_signature, dynamic, expose_signature)
+        if format_doc:
+            _format_doc(wrapper, public_signature)
         return wrapper
 
-    return decorator
+    return decorate if func is None else decorate(func)
+
+
+def _make_wrapper(target, signature, dynamic, expose_signature):
+    parameters = list(signature.parameters.values())
+    prefix = "_dda_"
+    while any(p.name.startswith(prefix) for p in parameters):
+        prefix = "_" + prefix
+    alias = lambda name: prefix + name
+    missing = object()
+    dynamic_names = {name for name, _, _ in dynamic}
+    context = {alias("target"): target, alias("missing"): missing,
+               alias("defaults"): tuple(p.default for p in parameters),
+               alias("resolvers"): tuple(marker._resolve for _, marker, _ in dynamic),
+               alias("StopAsyncIteration"): StopAsyncIteration,
+               alias("GeneratorExit"): GeneratorExit, alias("BaseException"): BaseException}
+    rendered = []
+    forwarded = []
+    for index, parameter in enumerate(parameters):
+        value = parameter.default
+        if value is not _EMPTY:
+            value = _Source(alias("missing") if parameter.name in dynamic_names
+                            else f"{alias('defaults')}[{index}]")
+        rendered.append(parameter.replace(default=value, annotation=_EMPTY))
+        if parameter.kind is parameter.VAR_POSITIONAL:
+            forwarded.append("*" + parameter.name)
+        elif parameter.kind is parameter.VAR_KEYWORD:
+            forwarded.append("**" + parameter.name)
+        elif parameter.kind is parameter.KEYWORD_ONLY:
+            forwarded.append(f"{parameter.name}={parameter.name}")
+        else:
+            forwarded.append(parameter.name)
+    definition_signature = inspect.Signature(rendered)
+    kind_target = (target if inspect.isroutine(target) or isinstance(target, partial)
+                   else target.__call__)
+    is_asyncgen = inspect.isasyncgenfunction(kind_target)
+    is_coroutine = inspect.iscoroutinefunction(kind_target)
+    is_generator = inspect.isgeneratorfunction(kind_target)
+    keyword = "async def" if is_coroutine or is_asyncgen else "def"
+    lines = [f"{keyword} {alias('wrapper')}{definition_signature}:"]
+    for index, (name, marker, dependencies) in enumerate(dynamic):
+        lines += [f"    if {name} is {alias('missing')}:",
+                  f"        {name} = {alias('resolvers')}[{index}]({', '.join(dependencies)})"]
+    call = f"{alias('target')}({', '.join(forwarded)})"
+    if is_asyncgen:
+        gen, item, sent, error = map(alias, ("gen", "item", "sent", "error"))
+        lines += [f"    {gen} = {call}", "    try:",
+                  f"        {item} = await {gen}.__anext__()", "        while True:",
+                  "            try:", f"                {sent} = yield {item}",
+                  f"            except {alias('GeneratorExit')}:",
+                  f"                await {gen}.aclose()", "                raise",
+                  f"            except {alias('BaseException')} as {error}:",
+                  f"                {item} = await {gen}.athrow({error})",
+                  "            else:", f"                {item} = await {gen}.asend({sent})",
+                  f"    except {alias('StopAsyncIteration')}:", "        return",
+                  "    finally:", f"        await {gen}.aclose()"]
+    elif is_coroutine:
+        lines.append(f"    return await {call}")
+    elif is_generator:
+        lines.append(f"    return (yield from {call})")
+    else:
+        lines.append(f"    return {call}")
+    exec(compile("\n".join(lines), "<dynamic-default-args wrapper>", "exec"), context)
+    wrapper = update_wrapper(context[alias("wrapper")], target)
+    if expose_signature:
+        wrapper.__signature__ = signature
+    return wrapper
