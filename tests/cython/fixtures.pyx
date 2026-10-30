@@ -10,6 +10,9 @@ def untyped(x=cell):
 def typed(double x=0.0):
     return x
 
+def mixed(static=None, double x=0.0, *, key=None):
+    return static, x, key
+
 @dynamic_default_args(defaults={"x": default_factory(lambda: 3.5)})
 def annotated(x: float = 0.0):
     return x

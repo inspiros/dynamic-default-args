@@ -45,6 +45,11 @@ assert request("/status", None) == ("/status", None)
 Only omitted arguments resolve. Explicit values, including `None`, pass through.
 A `default` cell shares its value; use a factory when each call needs a fresh object.
 
+Omitted static defaults stay with the wrapped callable. Place `@dynamic_default_args`
+above a validation decorator (such as Pydantic's `@validate_call`) to validate dynamic
+values while preserving static omissions. Static positional-only defaults
+are forwarded only when needed to reach a later positional-only argument.
+
 ## Factories
 
 `default_factory` computes a value per omission. Its optional `depends_on` names
@@ -63,6 +68,7 @@ assert take([1, 2, 3], 1) == [1]
 
 Factories are synchronous and resolve from left to right. `default(callable)`
 passes the callable itself; `default_factory(callable)` invokes it.
+With an inner validator, factories receive dependency values before validation.
 
 ## Methods
 
@@ -132,7 +138,8 @@ its [build-and-run helper](https://github.com/inspiros/dynamic-default-args/blob
   shared value changes. Set it to `False` to leave docstrings unchanged.
 - Shared cells expose `connect(callback)`, `disconnect(callback)`, and
   `disconnect_all()` for change notifications.
-- `signature=inspect.Signature(...)` adapts callables without signature metadata.
+- `signature=inspect.Signature(...)` adapts callables without signature metadata;
+  its static defaults are supplied explicitly to the target.
 
 More runnable Python examples are in [examples/factories.py](https://github.com/inspiros/dynamic-default-args/blob/master/examples/factories.py).
 See [CHANGELOG.md](https://github.com/inspiros/dynamic-default-args/blob/master/CHANGELOG.md) for changes. Licensed under [MIT-0](https://github.com/inspiros/dynamic-default-args/blob/master/LICENSE).

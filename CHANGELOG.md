@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Preserve omitted static defaults when forwarding calls to other wrappers,
+  including Pydantic validators (#1). Factories can still depend on those defaults.
+  Fill static positional-only slots only when a later positional-only value needs them.
+  Defaults declared in an explicit `signature=` are still supplied to the target.
+
 ## 0.1.0
 
 - Add per-call factories with dependencies on earlier parameters.

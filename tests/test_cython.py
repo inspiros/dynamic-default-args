@@ -1,5 +1,6 @@
 """Optional compiled integration tests. Set DDA_TEST_CYTHON=1 to require them."""
 import importlib
+from functools import wraps
 import inspect
 import os
 from pathlib import Path
@@ -65,6 +66,22 @@ class CythonIntegrationTest(unittest.TestCase):
     def test_annotation_type_inference(self):
         self.assertEqual(self.module.annotated(), 3.5)
         self.assertEqual(self.module.annotated(2), 2.0)
+
+    def test_static_defaults_stay_omitted_through_intermediate_wrapper(self):
+        from dynamic_default_args import dynamic_default_args
+
+        calls = []
+
+        @wraps(self.module.mixed)
+        def intermediate(*args, **kwargs):
+            calls.append((args, kwargs.copy()))
+            return self.module.mixed(*args, **kwargs)
+
+        wrapped = dynamic_default_args(defaults={"x": self.module.cell})(intermediate)
+        self.assertEqual(wrapped(), (None, 1.0, None))
+        self.assertEqual(calls[-1], ((), {"x": 1.0}))
+        self.assertEqual(wrapped(None, key=None), (None, 1.0, None))
+        self.assertEqual(calls[-1], ((None, 1.0), {"key": None}))
 
     def test_cpdef_python_wrapper_and_native_boundary(self):
         self.assertEqual(self.module.wrapped_dual(), 1.0)

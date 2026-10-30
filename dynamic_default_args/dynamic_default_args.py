@@ -211,7 +211,7 @@ def dynamic_default_args(func=None, *, format_doc=True, force_wrap=False,
                 p.replace(default=parameters[p.name].default)
                 for p in evaluated.parameters.values()])
         wrapper = _make_wrapper(target, public_signature, dynamic, expose_signature,
-                                bound_values, prefixes)
+                                bound_values, prefixes, preserve_omissions=signature is None)
         if format_doc:
             _format_doc(wrapper, public_signature)
         return wrapper
@@ -219,7 +219,57 @@ def dynamic_default_args(func=None, *, format_doc=True, force_wrap=False,
     return decorate if func is None else decorate(func)
 
 
-def _make_wrapper(target, signature, dynamic, expose_signature, bound_values, prefixes):
+def _forwarding_lines(parameters, static_names, alias, indent):
+    """Keep static omissions, filling only unavoidable positional-only gaps."""
+    args, kwargs, positional, last = map(alias, ("args", "kwargs", "positional", "last"))
+    missing = alias("missing")
+    lines = [f"{args} = []", f"{kwargs} = {{}}", f"{positional} = True"]
+    positional_only = [p for p in parameters if p.kind is p.POSITIONAL_ONLY]
+    if any(p.name in static_names for p in positional_only):
+        lines.append(f"{last} = -1")
+        for index, parameter in enumerate(positional_only):
+            if parameter.name not in static_names:
+                lines.append(f"{last} = {index}")
+            else:
+                lines += [f"if {parameter.name} is not {missing}:", f"    {last} = {index}"]
+    gap = False  # Whether an earlier omission can force keywords from here on.
+    for index, parameter in enumerate(parameters):
+        name = parameter.name
+        static = name in static_names
+        if parameter.kind is parameter.POSITIONAL_ONLY:
+            if not static:
+                lines.append(f"{args}.append({name})")
+                continue
+            gap = True
+            value = f"{alias('defaults')}[{index}] if {name} is {missing} else {name}"
+            lines += [f"if {last} >= {index}:", f"    {args}.append({value})",
+                      "else:", f"    {positional} = False"]
+        elif parameter.kind is parameter.POSITIONAL_OR_KEYWORD:
+            inner = ""
+            if static:
+                lines += [f"if {name} is {missing}:", f"    {positional} = False", "else:"]
+                inner = "    "
+            if gap or static:
+                lines += [f"{inner}if {positional}:", f"{inner}    {args}.append({name})",
+                          f"{inner}else:", f"{inner}    {kwargs}[{name!r}] = {name}"]
+            else:
+                lines.append(f"{args}.append({name})")
+            gap = gap or static
+        elif parameter.kind is parameter.KEYWORD_ONLY:
+            if static:
+                lines += [f"if {name} is not {missing}:", f"    {kwargs}[{name!r}] = {name}"]
+            else:
+                lines.append(f"{kwargs}[{name!r}] = {name}")
+        elif parameter.kind is parameter.VAR_POSITIONAL:
+            # Native binding fills every positional slot before collecting *args.
+            lines.append(f"{args}.extend({name})")
+        else:
+            lines.append(f"{kwargs}.update({name})")
+    return [indent + line for line in lines]
+
+
+def _make_wrapper(target, signature, dynamic, expose_signature, bound_values, prefixes,
+                  preserve_omissions):
     parameters = list(signature.parameters.values())
     prefix = "_dda_"
     while any(p.name.startswith(prefix) for p in parameters):
@@ -237,11 +287,18 @@ def _make_wrapper(target, signature, dynamic, expose_signature, bound_values, pr
                alias("BaseException"): BaseException}
     rendered = []
     forwarded = []
+    static_defaults = {}
     for index, parameter in enumerate(parameters):
         value = parameter.default
         if value is not _EMPTY:
-            value = _Source(alias("missing") if parameter.name in dynamic_names
-                            else f"{alias('defaults')}[{index}]")
+            if parameter.name in dynamic_names:
+                value = _Source(alias("missing"))
+            elif preserve_omissions:
+                # Keep omission distinct from explicitly passing the static default.
+                static_defaults[parameter.name] = f"{alias('defaults')}[{index}]"
+                value = _Source(alias("missing"))
+            else:  # An explicit signature may declare defaults the target lacks.
+                value = _Source(f"{alias('defaults')}[{index}]")
         rendered.append(parameter.replace(default=value, annotation=_EMPTY))
         if parameter.kind is parameter.VAR_POSITIONAL:
             forwarded.append("*" + parameter.name)
@@ -265,14 +322,37 @@ def _make_wrapper(target, signature, dynamic, expose_signature, bound_values, pr
                 arguments.append(f"{alias('bound')}[{dependency!r}]")
             elif dependency in prefixes:
                 arguments.append(f"{alias('prefixes')}[{dependency!r}] + {dependency}")
+            elif dependency in static_defaults:
+                # Factories can read an omitted static default without forwarding it.
+                arguments.append(f"({static_defaults[dependency]} if {dependency} is "
+                                 f"{alias('missing')} else {dependency})")
             else:
                 arguments.append(dependency)
         lines += [f"    if {name} is {alias('missing')}:",
                   f"        {name} = {alias('resolvers')}[{index}]({', '.join(arguments)})"]
-    call = f"{alias('target')}({', '.join(forwarded)})"
+    gen = alias("gen")
+
+    def invoke(call, indent):
+        if is_asyncgen:
+            return [f"{indent}{gen} = {call}"]
+        if is_coroutine:
+            return [f"{indent}return await {call}"]
+        if is_generator:
+            return [f"{indent}return (yield from {call})"]
+        return [f"{indent}return {call}"]
+
+    direct = f"{alias('target')}({', '.join(forwarded)})"
+    if static_defaults:
+        # Forward directly when nothing static was omitted; otherwise build the call.
+        present = " and ".join(f"{name} is not {alias('missing')}" for name in static_defaults)
+        lines += [f"    if {present}:", *invoke(direct, "        "), "    else:",
+                  *_forwarding_lines(parameters, static_defaults, alias, "        "),
+                  *invoke(f"{alias('target')}(*{alias('args')}, **{alias('kwargs')})", "        ")]
+    else:
+        lines += invoke(direct, "    ")
     if is_asyncgen:
-        gen, item, sent, error = map(alias, ("gen", "item", "sent", "error"))
-        lines += [f"    {gen} = {call}", "    try:",
+        item, sent, error = map(alias, ("item", "sent", "error"))
+        lines += ["    try:",
                   f"        {item} = await {gen}.__anext__()", "        while True:",
                   "            try:", f"                {sent} = yield {item}",
                   f"            except {alias('BaseException')} as {error}:",
@@ -280,12 +360,6 @@ def _make_wrapper(target, signature, dynamic, expose_signature, bound_values, pr
                   "            else:", f"                {item} = await {gen}.asend({sent})",
                   f"    except {alias('StopAsyncIteration')}:", "        return",
                   "    finally:", f"        await {gen}.aclose()"]
-    elif is_coroutine:
-        lines.append(f"    return await {call}")
-    elif is_generator:
-        lines.append(f"    return (yield from {call})")
-    else:
-        lines.append(f"    return {call}")
     exec(compile("\n".join(lines), "<dynamic-default-args wrapper>", "exec"), context)
     wrapper = update_wrapper(context[alias("wrapper")], target)
     if expose_signature:

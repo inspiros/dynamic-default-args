@@ -35,7 +35,7 @@ Issues = "https://github.com/inspiros/dynamic-default-args/issues"
 
 [project.optional-dependencies]
 cython = ["Cython>=3.0,<4", "setuptools>=77"]
-dev = ["build>=1", "twine>=6", "Cython>=3.0,<4", "setuptools>=77"]
+dev = ["build>=1", "twine>=6", "Cython>=3.0,<4", "setuptools>=77", "pydantic>=2,<3"]
 
 [tool.setuptools.dynamic]
 version = {attr = "dynamic_default_args._version.__version__"}
